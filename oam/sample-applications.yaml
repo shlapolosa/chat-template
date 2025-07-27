@@ -1,0 +1,135 @@
+# Basic Chatbot Deployment - Internal Services Only
+apiVersion: core.oam.dev/v1beta1
+kind: Application
+metadata:
+  name: internal-chatbot
+  namespace: default
+spec:
+  components:
+    - name: chatbot
+      type: rasa-chatbot
+      properties:
+        # Container images from environment
+        rasaImage: "socrates12345/chat-template-rasa:latest"
+        actionsImage: "socrates12345/chat-template-actions:latest"
+        
+        # Minimal setup for internal use
+        minScale: 1
+        actionsMinScale: 0
+        scaleToZero: false
+        enableIstioGateway: false
+
+---
+# Public Chatbot with Istio Gateway
+apiVersion: core.oam.dev/v1beta1
+kind: Application
+metadata:
+  name: public-chatbot
+  namespace: default
+spec:
+  components:
+    - name: chatbot
+      type: rasa-chatbot
+      properties:
+        # Container images
+        rasaImage: "socrates12345/chat-template-rasa:latest"
+        actionsImage: "socrates12345/chat-template-actions:latest"
+        
+        # Production scaling
+        minScale: 2
+        maxScale: 20
+        targetConcurrency: 15
+        actionsMinScale: 1
+        actionsMaxScale: 10
+        actionsTargetConcurrency: 8
+        
+        # Public exposure
+        enableIstioGateway: true
+        chatbotHost: "chat.example.com"
+        enableTLS: true
+        
+        # Keep actions internal
+        exposeActions: false
+        
+        # Higher resource limits
+        rasaMemory: "2Gi"
+        rasaCpu: "1000m"
+        rasaMemoryLimit: "4Gi"
+        rasaCpuLimit: "2000m"
+
+---
+# Development Environment - Both Services Exposed
+apiVersion: core.oam.dev/v1beta1
+kind: Application
+metadata:
+  name: dev-chatbot
+  namespace: dev
+spec:
+  components:
+    - name: chatbot
+      type: rasa-chatbot
+      properties:
+        # Container images
+        rasaImage: "socrates12345/chat-template-rasa:latest"
+        actionsImage: "socrates12345/chat-template-actions:latest"
+        
+        # Development scaling
+        minScale: 0
+        maxScale: 3
+        targetConcurrency: 5
+        actionsMinScale: 0
+        actionsMaxScale: 2
+        scaleToZero: true
+        
+        # Expose both services for testing
+        enableIstioGateway: true
+        chatbotHost: "dev-chat.example.com"
+        exposeActions: true
+        actionsHost: "dev-actions.example.com"
+        
+        # Lower resources for dev
+        rasaMemory: "512Mi"
+        rasaCpu: "250m"
+        actionsMemory: "256Mi"
+        actionsCpu: "100m"
+
+---
+# Multi-tenant Setup
+apiVersion: core.oam.dev/v1beta1
+kind: Application
+metadata:
+  name: tenant-a-chatbot
+  namespace: tenant-a
+spec:
+  components:
+    - name: chatbot
+      type: rasa-chatbot
+      properties:
+        # Container images
+        rasaImage: "socrates12345/chat-template-rasa:latest"
+        actionsImage: "socrates12345/chat-template-actions:latest"
+        
+        enableIstioGateway: true
+        chatbotHost: "tenant-a.chat.platform.com"
+        minScale: 1
+        maxScale: 5
+        
+---
+apiVersion: core.oam.dev/v1beta1
+kind: Application
+metadata:
+  name: tenant-b-chatbot
+  namespace: tenant-b
+spec:
+  components:
+    - name: chatbot
+      type: rasa-chatbot
+      properties:
+        # Container images
+        rasaImage: "socrates12345/chat-template-rasa:latest"
+        actionsImage: "socrates12345/chat-template-actions:latest"
+        
+        enableIstioGateway: true
+        chatbotHost: "tenant-b.chat.platform.com"
+        minScale: 1
+        maxScale: 5

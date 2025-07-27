@@ -4,77 +4,124 @@ metadata:
   name: rasa-chatbot
   namespace: vela-system
   annotations:
-    definition.oam.dev/description: "A Rasa-based chatbot component that deploys both the Rasa server and actions server as Knative services"
+    definition.oam.dev/description: "A Rasa-based chatbot component using Knative services for auto-scaling and serverless deployment"
 spec:
   workload:
     definition:
-      apiVersion: apps/v1
-      kind: Deployment
+      apiVersion: serving.knative.dev/v1
+      kind: Service
   schematic:
     cue:
       template: |
         output: {
-          apiVersion: "apps/v1"
-          kind:       "Deployment"
+          apiVersion: "serving.knative.dev/v1"
+          kind:       "Service"
           metadata: {
-            name: context.name
+            name: context.name + "-rasa"
             namespace: context.namespace
+            annotations: {
+              "autoscaling.knative.dev/minScale": "\(parameter.minScale)"
+              "autoscaling.knative.dev/maxScale": "\(parameter.maxScale)"
+              "autoscaling.knative.dev/target": "\(parameter.targetConcurrency)"
+              if parameter.scaleToZero {
+                "autoscaling.knative.dev/scale-to-zero-pod-retention-period": "1m"
+              }
+            }
           }
           spec: {
-            replicas: parameter.replicas
-            selector: matchLabels: {
-              "app.oam.dev/component": context.name
-            }
             template: {
               metadata: {
-                labels: {
-                  "app.oam.dev/component": context.name
+                annotations: {
+                  "autoscaling.knative.dev/minScale": "\(parameter.minScale)"
+                  "autoscaling.knative.dev/maxScale": "\(parameter.maxScale)"
+                  "run.googleapis.com/cpu-throttling": "false"
                 }
               }
               spec: {
-                containers: [
-                  {
-                    name:  "rasa-server"
-                    image: parameter.rasaImage
-                    ports: [{
-                      containerPort: 5005
-                      name: "http"
-                    }]
-                    env: [
-                      {
-                        name: "RASA_VERSION"
-                        value: parameter.rasaVersion
-                      }
-                    ]
-                    resources: {
-                      requests: {
-                        memory: parameter.rasaMemory
-                        cpu:    parameter.rasaCpu
-                      }
+                containerConcurrency: parameter.targetConcurrency
+                containers: [{
+                  name:  "rasa-server"
+                  image: parameter.rasaImage
+                  ports: [{
+                    containerPort: 5005
+                    name: "http1"
+                  }]
+                  env: [
+                    {
+                      name: "RASA_VERSION"
+                      value: parameter.rasaVersion
+                    },
+                    {
+                      name: "ACTION_ENDPOINT_URL"
+                      value: "http://\(context.name)-actions.\(context.namespace).svc.cluster.local/webhook"
                     }
-                    livenessProbe: {
-                      httpGet: {
-                        path: "/api/status"
-                        port: 5005
-                      }
-                      initialDelaySeconds: 30
-                      periodSeconds: 10
+                  ]
+                  resources: {
+                    requests: {
+                      memory: parameter.rasaMemory
+                      cpu:    parameter.rasaCpu
                     }
-                    readinessProbe: {
-                      httpGet: {
-                        path: "/api/status"
-                        port: 5005
-                      }
-                      initialDelaySeconds: 5
-                      periodSeconds: 5
+                    limits: {
+                      memory: parameter.rasaMemoryLimit
+                      cpu:    parameter.rasaCpuLimit
                     }
-                  },
-                  {
+                  }
+                  livenessProbe: {
+                    httpGet: {
+                      path: "/api/status"
+                      port: 5005
+                    }
+                    initialDelaySeconds: 30
+                    periodSeconds: 10
+                    timeoutSeconds: 5
+                  }
+                  readinessProbe: {
+                    httpGet: {
+                      path: "/api/status"
+                      port: 5005
+                    }
+                    initialDelaySeconds: 5
+                    periodSeconds: 5
+                    timeoutSeconds: 3
+                  }
+                }]
+              }
+            }
+          }
+        }
+
+        outputs: {
+          "actions-service": {
+            apiVersion: "serving.knative.dev/v1"
+            kind:       "Service"
+            metadata: {
+              name: context.name + "-actions"
+              namespace: context.namespace
+              annotations: {
+                "autoscaling.knative.dev/minScale": "\(parameter.actionsMinScale)"
+                "autoscaling.knative.dev/maxScale": "\(parameter.actionsMaxScale)"
+                "autoscaling.knative.dev/target": "\(parameter.actionsTargetConcurrency)"
+                if parameter.scaleToZero {
+                  "autoscaling.knative.dev/scale-to-zero-pod-retention-period": "30s"
+                }
+              }
+            }
+            spec: {
+              template: {
+                metadata: {
+                  annotations: {
+                    "autoscaling.knative.dev/minScale": "\(parameter.actionsMinScale)"
+                    "autoscaling.knative.dev/maxScale": "\(parameter.actionsMaxScale)"
+                  }
+                }
+                spec: {
+                  containerConcurrency: parameter.actionsTargetConcurrency
+                  containers: [{
                     name:  "actions-server"
                     image: parameter.actionsImage
                     ports: [{
                       containerPort: 5055
-                      name: "actions"
+                      name: "http1"
                     }]
                     env: [
                       {
@@ -87,6 +134,10 @@ spec:
                         memory: parameter.actionsMemory
                         cpu:    parameter.actionsCpu
                       }
+                      limits: {
+                        memory: parameter.actionsMemoryLimit
+                        cpu:    parameter.actionsCpuLimit
+                      }
                     }
                     livenessProbe: {
                       httpGet: {
@@ -95,6 +146,7 @@ spec:
                       }
                       initialDelaySeconds: 10
                       periodSeconds: 10
+                      timeoutSeconds: 3
                     }
                     readinessProbe: {
                       httpGet: {
@@ -103,121 +155,181 @@ spec:
                       }
                       initialDelaySeconds: 5
                       periodSeconds: 5
+                      timeoutSeconds: 3
                     }
-                  }
-                ]
-              }
-            }
-          }
-        }
-
-        outputs: {
-          "rasa-service": {
-            apiVersion: "v1"
-            kind:       "Service"
-            metadata: {
-              name: context.name + "-rasa"
-              namespace: context.namespace
-            }
-            spec: {
-              selector: {
-                "app.oam.dev/component": context.name
-              }
-              ports: [{
-                port:       5005
-                targetPort: 5005
-                name:       "http"
-              }]
-              type: "ClusterIP"
-            }
-          }
-          
-          "actions-service": {
-            apiVersion: "v1"
-            kind:       "Service"
-            metadata: {
-              name: context.name + "-actions"
-              namespace: context.namespace
-            }
-            spec: {
-              selector: {
-                "app.oam.dev/component": context.name
-              }
-              ports: [{
-                port:       5055
-                targetPort: 5055
-                name:       "actions"
-              }]
-              type: "ClusterIP"
-            }
-          }
-
-          if parameter.enableIngress {
-            "rasa-ingress": {
-              apiVersion: "networking.k8s.io/v1"
-              kind:       "Ingress"
-              metadata: {
-                name: context.name + "-ingress"
-                namespace: context.namespace
-                annotations: {
-                  "kubernetes.io/ingress.class": "istio"
-                  if parameter.ingressHost != _|_ {
-                    "cert-manager.io/cluster-issuer": "letsencrypt-prod"
-                  }
-                }
-              }
-              spec: {
-                if parameter.ingressHost != _|_ {
-                  tls: [{
-                    hosts: [parameter.ingressHost]
-                    secretName: context.name + "-tls"
                   }]
                 }
-                rules: [{
-                  if parameter.ingressHost != _|_ {
-                    host: parameter.ingressHost
+              }
+            }
+          }
+
+          if parameter.enableIstioGateway {
+            "istio-gateway": {
+              apiVersion: "networking.istio.io/v1beta1"
+              kind:       "Gateway"
+              metadata: {
+                name: context.name + "-gateway"
+                namespace: context.namespace
+              }
+              spec: {
+                selector: {
+                  istio: "ingressgateway"
+                }
+                servers: [{
+                  port: {
+                    number: 80
+                    name: "http"
+                    protocol: "HTTP"
                   }
-                  http: {
-                    paths: [{
-                      path: "/"
-                      pathType: "Prefix"
-                      backend: {
-                        service: {
-                          name: context.name + "-rasa"
-                          port: {
-                            number: 5005
-                          }
+                  hosts: [parameter.chatbotHost]
+                  if parameter.enableTLS {
+                    tls: {
+                      httpsRedirect: true
+                    }
+                  }
+                }]
+                if parameter.enableTLS {
+                  servers: [{
+                    port: {
+                      number: 443
+                      name: "https"
+                      protocol: "HTTPS"
+                    }
+                    hosts: [parameter.chatbotHost]
+                    tls: {
+                      mode: "SIMPLE"
+                      credentialName: context.name + "-tls-secret"
+                    }
+                  }]
+                }
+              }
+            }
+            
+            "rasa-virtualservice": {
+              apiVersion: "networking.istio.io/v1beta1"
+              kind:       "VirtualService"
+              metadata: {
+                name: context.name + "-rasa-vs"
+                namespace: context.namespace
+              }
+              spec: {
+                hosts: [parameter.chatbotHost]
+                gateways: [context.name + "-gateway"]
+                http: [{
+                  match: [{
+                    uri: {
+                      prefix: "/api"
+                    }
+                  }, {
+                    uri: {
+                      prefix: "/webhooks"
+                    }
+                  }, {
+                    uri: {
+                      prefix: "/conversations"
+                    }
+                  }]
+                  route: [{
+                    destination: {
+                      host: context.name + "-rasa.default.svc.cluster.local"
+                      port: {
+                        number: 80
+                      }
+                    }
+                  }]
+                  headers: {
+                    request: {
+                      set: {
+                        "X-Forwarded-Proto": "https"
+                      }
+                    }
+                  }
+                  corsPolicy: {
+                    allowOrigins: [{
+                      regex: ".*"
+                    }]
+                    allowMethods: ["GET", "POST", "OPTIONS"]
+                    allowHeaders: ["Content-Type", "Authorization"]
+                    maxAge: "24h"
+                  }
+                }]
+              }
+            }
+
+            if parameter.exposeActions {
+              "actions-virtualservice": {
+                apiVersion: "networking.istio.io/v1beta1"
+                kind:       "VirtualService"
+                metadata: {
+                  name: context.name + "-actions-vs"
+                  namespace: context.namespace
+                }
+                spec: {
+                  hosts: [parameter.actionsHost]
+                  gateways: [context.name + "-gateway"]
+                  http: [{
+                    match: [{
+                      uri: {
+                        prefix: "/webhook"
+                      }
+                    }, {
+                      uri: {
+                        prefix: "/health"
+                      }
+                    }]
+                    route: [{
+                      destination: {
+                        host: context.name + "-actions.default.svc.cluster.local"
+                        port: {
+                          number: 80
                         }
                       }
                     }]
-                  }
-                }]
+                  }]
+                }
               }
             }
           }
         }
 
         parameter: {
-          // Rasa Server Configuration
-          rasaImage: *"socrates12345/health-service-chat-template-rasa:latest" | string
+          // Container Images
+          rasaImage: string
+          actionsImage: string
+          
+          // Versions
           rasaVersion: *"3.6.21" | string
+          rasaSdkVersion: *"3.6.2" | string
+          
+          // Rasa Server Resources
           rasaMemory: *"1Gi" | string
           rasaCpu: *"500m" | string
+          rasaMemoryLimit: *"2Gi" | string
+          rasaCpuLimit: *"1000m" | string
           
-          // Actions Server Configuration  
-          actionsImage: *"socrates12345/health-service-chat-template-actions:latest" | string
-          rasaSdkVersion: *"3.6.2" | string
+          // Actions Server Resources
           actionsMemory: *"512Mi" | string
           actionsCpu: *"250m" | string
+          actionsMemoryLimit: *"1Gi" | string
+          actionsCpuLimit: *"500m" | string
           
-          // Deployment Configuration
-          replicas: *1 | int
+          // Knative Scaling - Rasa Server
+          minScale: *1 | int
+          maxScale: *10 | int
+          targetConcurrency: *10 | int
+          scaleToZero: *false | bool
           
-          // Networking Configuration
-          enableIngress: *false | bool
-          ingressHost?: string
+          // Knative Scaling - Actions Server
+          actionsMinScale: *0 | int
+          actionsMaxScale: *5 | int
+          actionsTargetConcurrency: *5 | int
           
-          // Optional Custom Configuration
-          customEndpoints?: string
-          customDomain?: string
+          // Networking with Istio
+          enableIstioGateway: *true | bool
+          chatbotHost: *"chatbot.local" | string
+          enableTLS: *false | bool
+          
+          // Actions External Access
+          exposeActions: *false | bool
+          actionsHost: *"actions.local" | string
         }

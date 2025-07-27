@@ -4,32 +4,55 @@ This template includes Open Application Model (OAM) integration for deploying Ra
 
 ## Overview
 
-The `rasa-chatbot` ComponentDefinition provides a declarative way to deploy Rasa applications with:
-- Rasa server container for NLU/dialogue processing
-- Actions server container for custom actions
-- Automatic service discovery and networking
-- Optional ingress configuration
-- Health checks and resource management
+The `rasa-chatbot` ComponentDefinition provides:
+
+- **Architecture**: Separate Knative services (microservices)
+- **Containers**: Independent Rasa server + Actions server 
+- **Scaling**: Independent auto-scaling per service
+- **Auto-scaling**: Scale-to-zero, target-based scaling
+- **Istio Gateway**: Advanced routing and traffic management
+- **External Exposure**: Configurable via parameters
+- **Use case**: Production workloads, cost optimization, high availability
+
+## Architecture Overview
+
+```
+Rasa Chatbot (rasa-chatbot):
+┌─────────────────┐    ┌─────────────────┐
+│  Rasa Service   │    │ Actions Service │
+│ ┌─────────────┐ │    │ ┌─────────────┐ │
+│ │ Rasa Server │ │    │ │   Actions   │ │
+│ │   :5005     │ │    │ │   :5055     │ │
+│ └─────────────┘ │    │ └─────────────┘ │
+└─────────────────┘    └─────────────────┘
+        │                       │
+   Auto-scaling             Auto-scaling
+   Scale-to-zero           Scale-to-zero
+        │                       │
+  ┌─────────────────────────────────┐
+  │        Istio Gateway            │
+  │     Advanced Routing            │
+  └─────────────────────────────────┘
+```
 
 ## Quick Start
 
-### 1. Install ComponentDefinition
-
 ```bash
+# Install ComponentDefinition
 kubectl apply -f oam/rasa-chatbot-componentdef.yaml
-```
 
-### 2. Deploy a Simple Chatbot
+# Deploy sample chatbot applications
+kubectl apply -f oam/sample-applications.yaml
 
-```bash
-kubectl apply -f oam/sample-application.yaml
+# Deploy with environment-based configuration
+kubectl apply -f oam/environment-config.yaml
 ```
 
 ## ComponentDefinition Parameters
 
 ### Required Parameters
-- `rasaImage`: Container image for Rasa server (default: `socrates12345/health-service-chat-template-rasa:latest`)
-- `actionsImage`: Container image for actions server (default: `socrates12345/health-service-chat-template-actions:latest`)
+- `rasaImage`: Container image for Rasa server (e.g., `socrates12345/chat-template-rasa:latest`)
+- `actionsImage`: Container image for actions server (e.g., `socrates12345/chat-template-actions:latest`)
 
 ### Optional Parameters
 
@@ -108,14 +131,49 @@ spec:
         replicas: 1
 ```
 
-## Generated Resources
+## External Exposure Patterns
 
-The ComponentDefinition creates:
+### Standard Kubernetes (`rasa-chatbot`)
+**Generated Resources:**
+1. **Deployment**: Both containers in single pod
+2. **ClusterIP Services**: Internal communication only
+3. **Ingress** (optional): External access to Rasa server only
 
-1. **Deployment**: Contains both Rasa server and actions server containers
-2. **Rasa Service**: ClusterIP service on port 5005 for the Rasa server
-3. **Actions Service**: ClusterIP service on port 5055 for the actions server
-4. **Ingress** (optional): External access to the Rasa server
+**Exposure:**
+- **Rasa**: `https://your-domain.com/` (via Ingress)
+- **Actions**: Internal only (actions server not exposed externally)
+
+### Knative Serverless (`rasa-chatbot-knative`)
+**Generated Resources:**
+1. **Knative Services**: Separate auto-scaling services
+2. **Istio Gateway**: Advanced traffic management
+3. **VirtualServices**: Path-based routing
+
+**Exposure Options:**
+- **Rasa Only** (default): `https://chat.example.com/api/*`
+- **Both Services** (dev mode): 
+  - Rasa: `https://dev-chat.example.com/api/*`
+  - Actions: `https://dev-actions.example.com/webhook`
+
+### URLs and Endpoints
+
+#### Rasa Server (External)
+- Chat API: `POST /webhooks/rest/webhook`
+- Status: `GET /api/status`
+- Model info: `GET /api/version`
+
+#### Actions Server (Usually Internal)
+- Webhook: `POST /webhook`
+- Health: `GET /health`
+
+**Internal Service Discovery:**
+```bash
+# Rasa server
+curl http://chatbot-rasa.default.svc.cluster.local/api/status
+
+# Actions server  
+curl http://chatbot-actions.default.svc.cluster.local/health
+```
 
 ## Service Discovery
 
