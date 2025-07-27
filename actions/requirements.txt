@@ -1,2 +1,2 @@
 # Actions server dependencies
-rasa-sdk>=3.7.0
+rasa-sdk==3.6.2

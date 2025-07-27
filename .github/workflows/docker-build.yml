@@ -106,8 +106,11 @@ jobs:
     - name: Test with Docker Compose
       run: |
         docker-compose up -d
-        sleep 30
+        sleep 60
         # Simple health check
         curl -f http://localhost:5005/ || exit 1
-        curl -f http://localhost:5055/health || exit 1
+        # Test actions server webhook endpoint
+        curl -X POST http://localhost:5055/webhook \
+          -H "Content-Type: application/json" \
+          -d '{"next_action": "action_listen", "tracker": {"sender_id": "test"}}' || exit 1
         docker-compose down

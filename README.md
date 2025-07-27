@@ -13,17 +13,17 @@ Click "Use this template" to create a new repository.
 git clone https://github.com/your-org/your-chat-service.git
 cd your-chat-service
 
-# Install Rasa
-pip install rasa
+# Install dependencies
+pip install -r requirements.txt
 
-# Initialize project (replaces template files)
-rasa init --no-prompt
-
-# Or keep template structure and train
+# Train the model
 rasa train
 
-# Run the chatbot
-rasa run --enable-api --cors "*" --port 5005
+# Run the Rasa server (use local endpoints)
+rasa run --enable-api --cors "*" --port 5005 --endpoints endpoints.local.yml
+
+# In another terminal, start the actions server
+rasa run actions --port 5055
 ```
 
 ### 3. Docker Development

@@ -1,0 +1,42 @@
+{
+  "packages": [
+    "python@3.9",
+    "python39Packages.pip@latest",
+    "docker@latest",
+    "docker-compose@latest"
+  ],
+  "env": {
+    "RASA_VERSION": "3.6.21",
+    "RASA_SDK_VERSION": "3.6.2",
+    "DOCKER_BUILDKIT": "1"
+  },
+  "shell": {
+    "init_hook": [
+      "echo 'Welcome to Rasa Chat Template development environment!'",
+      "echo 'Available commands:'",
+      "echo '  rasa train     - Train the model'",
+      "echo '  rasa run       - Start Rasa server'",
+      "echo '  rasa run actions - Start actions server'",
+      "echo '  docker-compose up - Start with Docker'",
+      "echo 'For more info, see README.md'"
+    ],
+    "scripts": {
+      "install": [
+        "pip install --upgrade pip",
+        "pip install -r requirements.txt",
+        "pip install rasa==3.6.21 rasa-sdk==3.6.2"
+      ],
+      "train": "rasa train",
+      "run-rasa": "rasa run --enable-api --cors '*' --port 5005",
+      "run-actions": "rasa run actions --port 5055",
+      "test": [
+        "rasa test",
+        "rasa data validate"
+      ],
+      "docker-build": "docker-compose build",
+      "docker-up": "docker-compose up",
+      "docker-down": "docker-compose down",
+      "lint": "rasa data validate"
+    }
+  }
+}

@@ -1,0 +1,45 @@
+apiVersion: core.oam.dev/v1beta1
+kind: Application
+metadata:
+  name: my-chatbot
+  namespace: default
+spec:
+  components:
+    - name: chatbot
+      type: rasa-chatbot
+      properties:
+        rasaImage: "socrates12345/health-service-chat-template-rasa:latest"
+        actionsImage: "socrates12345/health-service-chat-template-actions:latest"
+        replicas: 1
+        rasaMemory: "1Gi"
+        rasaCpu: "500m"
+        actionsMemory: "512Mi"
+        actionsCpu: "250m"
+        enableIngress: true
+        ingressHost: "chatbot.example.com"
+      traits:
+        - type: scaler
+          properties:
+            replicas: 1
+        - type: labels
+          properties:
+            app: "rasa-chatbot"
+            version: "v1.0"
+        - type: annotations
+          properties:
+            description: "Rasa chatbot deployment with OAM"
+            
+---
+apiVersion: core.oam.dev/v1beta1
+kind: Application
+metadata:
+  name: simple-chatbot
+  namespace: default
+spec:
+  components:
+    - name: basic-chat
+      type: rasa-chatbot
+      properties:
+        # Using default values for simplicity
+        enableIngress: false
+        replicas: 1

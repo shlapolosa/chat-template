@@ -1,0 +1,223 @@
+apiVersion: core.oam.dev/v1beta1
+kind: ComponentDefinition
+metadata:
+  name: rasa-chatbot
+  namespace: vela-system
+  annotations:
+    definition.oam.dev/description: "A Rasa-based chatbot component that deploys both the Rasa server and actions server as Knative services"
+spec:
+  workload:
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+  schematic:
+    cue:
+      template: |
+        output: {
+          apiVersion: "apps/v1"
+          kind:       "Deployment"
+          metadata: {
+            name: context.name
+            namespace: context.namespace
+          }
+          spec: {
+            replicas: parameter.replicas
+            selector: matchLabels: {
+              "app.oam.dev/component": context.name
+            }
+            template: {
+              metadata: {
+                labels: {
+                  "app.oam.dev/component": context.name
+                }
+              }
+              spec: {
+                containers: [
+                  {
+                    name:  "rasa-server"
+                    image: parameter.rasaImage
+                    ports: [{
+                      containerPort: 5005
+                      name: "http"
+                    }]
+                    env: [
+                      {
+                        name: "RASA_VERSION"
+                        value: parameter.rasaVersion
+                      }
+                    ]
+                    resources: {
+                      requests: {
+                        memory: parameter.rasaMemory
+                        cpu:    parameter.rasaCpu
+                      }
+                    }
+                    livenessProbe: {
+                      httpGet: {
+                        path: "/api/status"
+                        port: 5005
+                      }
+                      initialDelaySeconds: 30
+                      periodSeconds: 10
+                    }
+                    readinessProbe: {
+                      httpGet: {
+                        path: "/api/status"
+                        port: 5005
+                      }
+                      initialDelaySeconds: 5
+                      periodSeconds: 5
+                    }
+                  },
+                  {
+                    name:  "actions-server"
+                    image: parameter.actionsImage
+                    ports: [{
+                      containerPort: 5055
+                      name: "actions"
+                    }]
+                    env: [
+                      {
+                        name: "RASA_SDK_VERSION"
+                        value: parameter.rasaSdkVersion
+                      }
+                    ]
+                    resources: {
+                      requests: {
+                        memory: parameter.actionsMemory
+                        cpu:    parameter.actionsCpu
+                      }
+                    }
+                    livenessProbe: {
+                      httpGet: {
+                        path: "/health"
+                        port: 5055
+                      }
+                      initialDelaySeconds: 10
+                      periodSeconds: 10
+                    }
+                    readinessProbe: {
+                      httpGet: {
+                        path: "/health"
+                        port: 5055
+                      }
+                      initialDelaySeconds: 5
+                      periodSeconds: 5
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+
+        outputs: {
+          "rasa-service": {
+            apiVersion: "v1"
+            kind:       "Service"
+            metadata: {
+              name: context.name + "-rasa"
+              namespace: context.namespace
+            }
+            spec: {
+              selector: {
+                "app.oam.dev/component": context.name
+              }
+              ports: [{
+                port:       5005
+                targetPort: 5005
+                name:       "http"
+              }]
+              type: "ClusterIP"
+            }
+          }
+          
+          "actions-service": {
+            apiVersion: "v1"
+            kind:       "Service"
+            metadata: {
+              name: context.name + "-actions"
+              namespace: context.namespace
+            }
+            spec: {
+              selector: {
+                "app.oam.dev/component": context.name
+              }
+              ports: [{
+                port:       5055
+                targetPort: 5055
+                name:       "actions"
+              }]
+              type: "ClusterIP"
+            }
+          }
+
+          if parameter.enableIngress {
+            "rasa-ingress": {
+              apiVersion: "networking.k8s.io/v1"
+              kind:       "Ingress"
+              metadata: {
+                name: context.name + "-ingress"
+                namespace: context.namespace
+                annotations: {
+                  "kubernetes.io/ingress.class": "istio"
+                  if parameter.ingressHost != _|_ {
+                    "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+                  }
+                }
+              }
+              spec: {
+                if parameter.ingressHost != _|_ {
+                  tls: [{
+                    hosts: [parameter.ingressHost]
+                    secretName: context.name + "-tls"
+                  }]
+                }
+                rules: [{
+                  if parameter.ingressHost != _|_ {
+                    host: parameter.ingressHost
+                  }
+                  http: {
+                    paths: [{
+                      path: "/"
+                      pathType: "Prefix"
+                      backend: {
+                        service: {
+                          name: context.name + "-rasa"
+                          port: {
+                            number: 5005
+                          }
+                        }
+                      }
+                    }]
+                  }
+                }]
+              }
+            }
+          }
+        }
+
+        parameter: {
+          // Rasa Server Configuration
+          rasaImage: *"socrates12345/health-service-chat-template-rasa:latest" | string
+          rasaVersion: *"3.6.21" | string
+          rasaMemory: *"1Gi" | string
+          rasaCpu: *"500m" | string
+          
+          // Actions Server Configuration  
+          actionsImage: *"socrates12345/health-service-chat-template-actions:latest" | string
+          rasaSdkVersion: *"3.6.2" | string
+          actionsMemory: *"512Mi" | string
+          actionsCpu: *"250m" | string
+          
+          // Deployment Configuration
+          replicas: *1 | int
+          
+          // Networking Configuration
+          enableIngress: *false | bool
+          ingressHost?: string
+          
+          // Optional Custom Configuration
+          customEndpoints?: string
+          customDomain?: string
+        }

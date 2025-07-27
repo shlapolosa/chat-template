@@ -1,8 +1,8 @@
-# Configuration for external services
+# Configuration for local development (non-Docker)
 
 # Actions server
 action_endpoint:
-  url: "http://actions:5055/webhook"
+  url: "http://localhost:5055/webhook"
 
 # Tracker store (uncomment for production)
 # tracker_store:
