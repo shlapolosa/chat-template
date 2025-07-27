@@ -1,0 +1,21 @@
+# Minimal Rasa configuration
+recipe: default.v1
+language: en
+
+pipeline:
+  # Basic NLU pipeline
+  - name: WhitespaceTokenizer
+  - name: RegexFeaturizer
+  - name: LexicalSyntacticFeaturizer
+  - name: CountVectorsFeaturizer
+  - name: DIETClassifier
+    epochs: 50
+  - name: EntitySynonymMapper
+
+policies:
+  # Basic dialogue policies
+  - name: MemoizationPolicy
+  - name: RulePolicy
+  - name: TEDPolicy
+    max_history: 5
+    epochs: 50

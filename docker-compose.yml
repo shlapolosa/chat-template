@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  rasa:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.rasa
+    ports:
+      - "5005:5005"
+    volumes:
+      - ./models:/app/models
+    depends_on:
+      - actions
+    environment:
+      - RASA_PORT=5005
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5005/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  actions:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.actions
+    ports:
+      - "5055:5055"
+    environment:
+      - ACTION_PORT=5055
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5055/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

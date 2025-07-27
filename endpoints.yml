@@ -1,0 +1,20 @@
+# Configuration for external services
+
+# Actions server
+action_endpoint:
+  url: "http://localhost:5055/webhook"
+
+# Tracker store (uncomment for production)
+# tracker_store:
+#   type: SQL
+#   dialect: "postgresql"
+#   url: "localhost"
+#   db: "rasa"
+#   username: "user"
+#   password: "password"
+
+# Event broker (uncomment if needed)
+# event_broker:
+#   type: kafka
+#   url: "localhost:9092"
+#   topic: "rasa_events"
