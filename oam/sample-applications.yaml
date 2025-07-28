@@ -13,6 +13,10 @@ spec:
         rasaImage: "socrates12345/chat-template-rasa:latest"
         actionsImage: "socrates12345/chat-template-actions:latest"
         
+        # Custom environment variables (optional)
+        environment:
+          LOG_LEVEL: "INFO"
+        
         # Minimal setup for internal use
         minScale: 1
         actionsMinScale: 0

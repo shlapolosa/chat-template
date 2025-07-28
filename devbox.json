@@ -18,6 +18,7 @@
       "echo '  rasa run       - Start Rasa server'",
       "echo '  rasa run actions - Start actions server'",
       "echo '  docker-compose up - Start with Docker'",
+      "echo '  kubectl apply -f oam/chat-template-componentdef.yaml - Install OAM ComponentDefinition'",
       "echo 'For more info, see README.md'"
     ],
     "scripts": {

@@ -13,6 +13,9 @@ services:
       - actions
     environment:
       - RASA_PORT=5005
+      - ACTION_ENDPOINT_URL=http://actions:5055/webhook
+      - ACTIONS_SERVER_HOST=actions
+      - ACTIONS_SERVER_PORT=5055
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5005/"]
       interval: 30s

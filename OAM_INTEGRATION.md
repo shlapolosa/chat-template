@@ -39,7 +39,7 @@ Rasa Chatbot (rasa-chatbot):
 
 ```bash
 # Install ComponentDefinition
-kubectl apply -f oam/rasa-chatbot-componentdef.yaml
+kubectl apply -f oam/chat-template-componentdef.yaml
 
 # Deploy sample chatbot applications
 kubectl apply -f oam/sample-applications.yaml
@@ -174,6 +174,38 @@ curl http://chatbot-rasa.default.svc.cluster.local/api/status
 # Actions server  
 curl http://chatbot-actions.default.svc.cluster.local/health
 ```
+
+## Runtime Configuration
+
+### Automatic Service Discovery
+The Rasa server automatically configures itself to connect to the actions server at runtime:
+
+**Environment Variables Set Automatically:**
+- `ACTION_ENDPOINT_URL`: Full webhook URL for actions server
+- `ACTIONS_SERVER_HOST`: Hostname for actions server
+- `ACTIONS_SERVER_PORT`: Port for actions server
+
+**Docker Compose:**
+```yaml
+environment:
+  - ACTION_ENDPOINT_URL=http://actions:5055/webhook
+  - ACTIONS_SERVER_HOST=actions
+  - ACTIONS_SERVER_PORT=5055
+```
+
+**Knative (Auto-configured):**
+```yaml
+env:
+  - name: ACTION_ENDPOINT_URL
+    value: "http://chatbot-actions.default.svc.cluster.local/webhook"
+  - name: ACTIONS_SERVER_HOST  
+    value: "chatbot-actions.default.svc.cluster.local"
+  - name: ACTIONS_SERVER_PORT
+    value: "80"
+```
+
+### Dynamic Endpoints Configuration
+The Rasa container uses a startup script (`/app/scripts/generate-endpoints.sh`) to create the `endpoints.yml` file from environment variables, ensuring it works in both Docker Compose and Kubernetes environments.
 
 ## Service Discovery
 

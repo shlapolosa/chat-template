@@ -54,6 +54,19 @@ spec:
                     {
                       name: "ACTION_ENDPOINT_URL"
                       value: "http://\(context.name)-actions.\(context.namespace).svc.cluster.local/webhook"
+                    },
+                    {
+                      name: "ACTIONS_SERVER_HOST"
+                      value: "\(context.name)-actions.\(context.namespace).svc.cluster.local"
+                    },
+                    {
+                      name: "ACTIONS_SERVER_PORT"
+                      value: "80"
+                    }
+                  ] + [
+                    for k, v in parameter.environment {
+                      name: k
+                      value: v
                     }
                   ]
                   resources: {
@@ -323,6 +336,9 @@ spec:
           actionsMinScale: *0 | int
           actionsMaxScale: *5 | int
           actionsTargetConcurrency: *5 | int
+          
+          // Environment Variables
+          environment: *{} | {[string]: string}
           
           // Networking with Istio
           enableIstioGateway: *true | bool
