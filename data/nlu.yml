@@ -38,6 +38,13 @@ nlu:
     - of course
     - that sounds good
     - correct
+    - yes please
+    - sure
+    - absolutely
+    - right
+    - true
+    - ok
+    - okay
 
 - intent: deny
   examples: |
@@ -48,6 +55,9 @@ nlu:
     - don't like that
     - no way
     - not really
+    - no thanks
+    - nope
+    - not interested
 
 - intent: mood_great
   examples: |
@@ -65,6 +75,9 @@ nlu:
     - so so perfect
     - so good
     - so perfect
+    - fantastic
+    - excellent
+    - brilliant
 
 - intent: mood_unhappy
   examples: |
@@ -82,6 +95,9 @@ nlu:
     - extremly sad
     - so saad
     - so sad
+    - terrible
+    - awful
+    - depressed
 
 - intent: bot_challenge
   examples: |
@@ -89,3 +105,45 @@ nlu:
     - are you a human?
     - am I talking to a bot?
     - am I talking to a human?
+    - what are you?
+    - who are you?
+    - are you real?
+    - are you artificial?
+
+- intent: ask_help
+  examples: |
+    - help
+    - can you help me
+    - I need help
+    - help me please
+    - can you assist me
+    - I need assistance
+    - what can you do
+    - how can you help
+    - show me what you can do
+    - what are your capabilities
+
+- intent: ask_status
+  examples: |
+    - what's your status
+    - are you working
+    - are you online
+    - system status
+    - health check
+    - are you running
+    - how are you doing
+    - status report
+    - system health
+
+- intent: thank_you
+  examples: |
+    - thanks
+    - thank you
+    - thank you so much
+    - thanks a lot
+    - awesome, thanks
+    - cool, thanks
+    - great, thanks
+    - much appreciated
+    - thanks for your help
+    - thank you for helping me

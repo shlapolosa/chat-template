@@ -1,1 +1,1 @@
-# Actions module
+# Actions module for Rasa chatbot

@@ -1,309 +1,403 @@
-# Chat Template
+# Rasa Proxy
 
-A minimal GitHub template repository for creating Rasa chatbot services with Docker support, Kubernetes/OAM deployment, and CI/CD integration.
+## To run locally
 
-## 🚀 Quick Start
+### Setup
 
-### 1. Use This Template
-Click "Use this template" to create a new repository.
-
-### 2. Choose Your Deployment Method
-
-## 🐳 Docker Compose (Recommended for Development)
-
-### Prerequisites
-- Docker and Docker Compose installed
-- Git
-
-### Steps
 ```bash
-# Clone your repository
-git clone https://github.com/your-org/your-chat-service.git
-cd your-chat-service
+poetry install
+# If you get dependency conflicts, run:
+poetry lock --no-update
+poetry install
 
-# Start the chatbot (builds containers automatically)
-docker-compose up --build
-
-# The services will start:
-# - Rasa server: http://localhost:5005
-# - Actions server: http://localhost:5055 (internal)
+source .venv/bin/activate
 ```
 
-### Test Your Chatbot
+### Dependencies
+
+Key dependencies:
+- Rasa 3.7.10
+- fhir.resources 7.0.0
+- Pydantic <1.10.10
+
+### Troubleshooting Dependency Conflicts
+
+If you encounter dependency conflicts:
+1. Remove existing virtual environment:
 ```bash
-# Health check
-curl http://localhost:5005/api/status
-
-# Send a message to your bot
-curl -X POST http://localhost:5005/webhooks/rest/webhook \
-  -H "Content-Type: application/json" \
-  -d '{"sender": "user123", "message": "hello"}'
-
-# Expected response:
-# [{"recipient_id":"user123","text":"Hello! How can I help you?"}]
+rm -rf .venv/
 ```
 
-### Stop the Services
+2. Clear poetry cache:
+```bash
+poetry cache clear pypi --all
+```
+
+3. Install with clean environment:
+```bash
+poetry install
+```
+
+4. Verify installation:
+```bash
+poetry run python -c "from fhir.resources import __version__; print(__version__)"
+# Should output: 7.0.0
+```
+
+usefull commands:
+
+```bash
+poetry cache clear pypi --all
+rm -rf .venv/
+rasa --version
+pip show rasa
+pip uninstall rasa
+pip cache purge
+deactivate
+```
+### Run Rasa
+
+```bash
+rasa train
+rasa interactive --skip-visualization
+rasa shell
+rasa run --enable-api --cors "*"
+```
+# Note! requires python 3.10
+
+
+### Docker Compose to run locally (expects identity-service to be running locally)
+
+# Note! you hardly ever need to build the base image unless license changes for example. make sure to add licence as env variable locally then run
+
+```bash
+
+az login
+az acr login --name heathhealthregistry 
+docker buildx build \
+    --platform linux/amd64,linux/arm64 \
+    --build-arg RASA_PRO_LICENSE="$RASA_PRO_LICENSE" \
+    -t heathhealthregistry.azurecr.io/rasa-base:3.7.10 \
+    -f docker/Dockerfile \
+    --push .
+```
+
+this will build and push base rasa image which is reference by rasa and rasa-actions. need this base image since no rasa native base image for this version exists. also easiest to build once and reference than to build each time, very resource intensive.
+
+
+```bash
+
+docker build --no-cache -t socrates12345/rasa-actions:latest -f docker/rasa-actions/Dockerfile .
+
+docker build --no-cache -t socrates12345/rasa:latest -f docker/rasa/Dockerfile .
+
+docker-compose down --volumes --remove-orphans && docker-compose build --no-cache && docker-compose up --force-recreate
+```
+
+### Run Rasa Actions in a different window
+
+```bash
+rasa run actions --debug
+```
+
+## Architecture
+
+### Questionnaire & Triage Data Flow
+![Conceptural Architecture](./diagram-export-26-01-2025-20_38_02.png)
+1. **Data Flow Overview**
+```mermaid
+sequenceDiagram
+    participant User
+    participant Rasa
+    participant ActionHandler
+    participant KafkaClient
+    participant FHIRService
+    participant InfermedicaProvider
+    
+    User->>Rasa: Submit questionnaire response
+    Rasa->>ActionHandler: Trigger ActionHandleQuestionnaireResponse
+    ActionHandler->>KafkaClient: Send questionnaire data
+    KafkaClient->>FHIRService: Process FHIR data enhancement
+    FHIRService->>InfermedicaProvider: Create triage request
+    InfermedicaProvider-->>FHIRService: Return triage results
+    FHIRService-->>KafkaClient: Publish enhanced record
+    KafkaClient-->>Rasa: Update conversation state
+    Rasa-->>User: Display results
+```
+
+2. **Detailed Processing Steps**
+
+   a. **Response Collection (ActionHandleQuestionnaireResponse)**
+   - Validates user responses against questionnaire constraints
+   - Accumulates responses in `questionnaire_responses` slot
+   - When questionnaire completes, triggers Kafka event
+
+   b. **Data Enhancement (FHIRDataEnhancementService)**
+   - Receives raw questionnaire data via Kafka
+   - Creates/updates FHIR patient record
+   - Combines questionnaire with patient data
+   - Adds metadata and processing timestamp
+   - Publishes enhanced record to Kafka
+
+   c. **Medical Knowledge Processing**
+   - InfermedicaProvider processes enhanced data
+   - Creates structured request with:
+    - Patient demographics
+    - Symptoms and responses
+    - Medical history
+   - Returns triage assessment
+
+3. **Key Components**
+
+   - **ActionHandleQuestionnaireResponse**
+     - Entry point for questionnaire processing
+     - Manages response validation and flow
+     - Triggers Kafka events on completion
+
+   - **FHIRDataEnhancementService**
+     - Handles FHIR data transformation
+     - Manages patient record creation/updates
+     - Enriches data with medical context
+
+   - **KafkaClient**
+     - Manages async message flow
+     - Handles event publishing/subscription
+     - Ensures reliable message delivery
+
+4. **Data Transformation Flow**
+```
+Raw Questionnaire Response
+↓
+FHIR Patient Record
+↓
+Enhanced Medical Context
+↓
+Triage Assessment
+↓
+Conversation State Update
+```
+
+5. **Key Files & Responsibilities**
+
+   - `actions/fhir/actions.py`
+     - Questionnaire response handling
+     - Initial data processing
+     - Kafka event triggering
+
+   - `actions/services/kafka_client.py`
+     - Message routing
+     - Event publishing
+     - Error handling
+
+   - `actions/fhir/fhir_services.py`
+     - FHIR data enhancement
+     - Medical record management
+     - Data enrichment
+
+   - `actions/providers/infermedica_provider.py`
+     - Triage decision making
+     - Medical assessment
+     - Recommendation generation
+
+6. **Error Handling**
+   - Failed validations repeat questions
+   - Processing errors reset questionnaire state
+   - Network issues trigger fallback responses
+   - All errors logged for monitoring
+
+### Overview
+This system is a multi-channel conversational platform supporting Web Chat, WhatsApp (Twilio), Telegram, and Instagram, providing real-time (WebSockets) and request/response communication. Powered by Rasa for advanced Natural Language Understanding (NLU) and chatbot orchestration, it integrates with external services for patient records, scheduling, and medical assessments.
+
+### Key highlights:
+
+AI-driven by Rasa for NLU and advanced analytics.
+Multi-tenant architecture, isolating and tailoring deployments to meet regional data and compliance requirements.
+GitOps-based operations with Argo and GitHub Actions.
+CRM integration for customer support workflows.
+
+
+![Conceptural Architecture](./diagram-export-05-01-2025-09_59_57.png)
+
+
+
+### Create Azure Credential File
+
+```bash
+az login
+
+export SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+
+az ad sp create-for-rbac --sdk-auth --name heathsa --role Owner --scopes /subscriptions/$SUBSCRIPTION_ID | tee azure-creds.json
+```
+
+### For Argo Workflow
+
+Secrets:
+- Make sure AZURE_CREDENTIALS secret and ACR env key is in github of this repo
+- AZURE_CREDENTIALS = ./azure-creds.json as is without any base64
+
+Variable key value pairs:
+- ACR heathhealthregistry
+- ACR_URL heathhealthregistry.azurecr.io
+
+## Setup & Running Options
+
+### Option 1: Local Development
+1. Create a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+2. Install dependencies:
+```bash
+cd chat-service
+pip install -r requirements.txt
+```
+
+3. Create `.env` file:
+```bash
+cp .env.example .env
+```
+Then edit `.env` with your specific configuration.
+
+4. Start the server locally:
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Option 2: Docker Compose (Recommended for Production)
+1. Start all services:
+```bash
+docker-compose up -d
+```
+
+2. Stop all services:
 ```bash
 docker-compose down
 ```
 
-## ☸️ Kubernetes/OAM Deployment (Production)
+## Architecture & Data Flow
 
-### Prerequisites
-- Kubernetes cluster with KubeVela installed
-- kubectl configured
-- Container images built and pushed (see CI/CD section)
+### Component URLs and Ports
 
-### Steps
+#### External Access (Browser)
+- Web Interface: `http://localhost:80/chat/`
+- WebSocket: `ws://localhost:80/chat/socket.io/`
+- Static Files: `http://localhost:80/chat/static/*`
 
-#### 1. Install the ComponentDefinition
-```bash
-kubectl apply -f oam/chat-template-componentdef.yaml
+#### Internal Services
+1. **Chat Service (Proxy)**
+   - External Port: 80
+   - Internal Port: 8000
+   - Internal URL: `http://chat-service:8000`
+   - WebSocket Path: `/chat/socket.io/`
+
+2. **Rasa Server**
+   - Port: 5005 (internal only)
+   - URL: `http://rasa:5005`
+   - WebSocket: `ws://rasa:5005/socket.io/`
+   - Not exposed externally
+
+3. **Rasa Actions**
+   - Port: 8000 (internal only)
+   - URL: `http://rasa-actions:8000`
+   - Not exposed externally
+
+### Communication Flow
+
+1. **Initial Page Load**
+```
+Browser -> http://localhost:80/chat/ 
+-> Docker forwards to chat-service:8000
+-> chat-service serves index.html
 ```
 
-#### 2. Deploy Your Chatbot
-```bash
-# Basic internal deployment
-kubectl apply -f oam/sample-applications.yaml
-
-# Or with custom configuration
-kubectl apply -f oam/environment-config.yaml
+2. **WebSocket Connection**
+```
+Browser WebSocket -> ws://localhost:80/chat/socket.io/
+-> Docker forwards to chat-service:8000
+-> chat-service Socket.IO server
+-> chat-service connects to rasa:5005
 ```
 
-#### 3. Access Your Chatbot
-
-**Internal Access (within cluster):**
-```bash
-# Forward port for testing
-kubectl port-forward svc/chatbot-rasa 5005:80
-
-# Test the API
-curl -X POST http://localhost:5005/webhooks/rest/webhook \
-  -H "Content-Type: application/json" \
-  -d '{"sender": "user123", "message": "hello"}'
+3. **Message Flow**
 ```
-
-**External Access (with Istio Gateway):**
-```yaml
-# In your Application manifest
-spec:
-  components:
-    - name: chatbot
-      type: rasa-chatbot
-      properties:
-        rasaImage: "socrates12345/chat-template-rasa:latest"
-        actionsImage: "socrates12345/chat-template-actions:latest"
-        enableIstioGateway: true
-        chatbotHost: "chat.yourdomain.com"
-        enableTLS: true
+Browser -> chat-service:8000/chat/socket.io/
+-> chat-service internal processing
+-> rasa:5005/socket.io/
+-> Response follows reverse path
 ```
-
-Then access via: `https://chat.yourdomain.com/webhooks/rest/webhook`
-
-## 🛠️ Local Development (Native)
-
-For development without Docker:
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Train the model
-rasa train
-
-# Terminal 1: Start actions server
-rasa run actions --port 5055
-
-# Terminal 2: Start Rasa server
-rasa run --enable-api --cors "*" --port 5005 --endpoints endpoints.local.yml
-
-# Terminal 3: Test
-curl -X POST http://localhost:5005/webhooks/rest/webhook \
-  -H "Content-Type: application/json" \
-  -d '{"sender": "test", "message": "hello"}'
-```
-
-## 🔧 Configuration & Customization
 
 ### Environment Configuration
 
-**Docker Compose (automatic):**
-- Rasa automatically connects to actions server via `http://actions:5055/webhook`
-
-**Kubernetes (automatic):**
-- Rasa automatically connects to actions server via service discovery
-- Environment variables injected: `ACTION_ENDPOINT_URL`, `ACTIONS_SERVER_HOST`, `ACTIONS_SERVER_PORT`
-
-### Custom Environment Variables
-```yaml
-# In OAM Application
-properties:
-  environment:
-    LOG_LEVEL: "DEBUG"
-    CUSTOM_SETTING: "value"
-```
-
-### Database Integration
-Update your OAM Application or docker-compose.yml:
-```yaml
-environment:
-  DATABASE_URL: "postgresql://user:pass@host:5432/rasa"
-```
-
-## 📁 Project Structure
-
-```
-chat-template/
-├── README.md                          # This file
-├── .github/workflows/                 # CI/CD automation
-├── oam/                               # Kubernetes OAM definitions
-│   ├── chat-template-componentdef.yaml # Main ComponentDefinition
-│   ├── sample-applications.yaml      # Example deployments
-│   └── environment-config.yaml       # ConfigMap examples
-├── scripts/                           # Utility scripts
-│   └── generate-endpoints.sh         # Dynamic endpoint configuration
-├── config.yml                         # Rasa NLU/Core configuration
-├── domain.yml                         # Bot responses and slots
-├── credentials.yml                    # Channel configurations
-├── endpoints.yml                      # Service endpoints (Docker)
-├── endpoints.local.yml               # Local development endpoints
-├── data/                              # Training data
-│   ├── nlu.yml                        # User message examples
-│   ├── rules.yml                      # Conversation rules
-│   └── stories.yml                    # Conversation flows
-├── actions/                           # Custom Python actions
-│   ├── __init__.py
-│   ├── actions.py                     # Custom action implementations
-│   └── requirements.txt               # Actions server dependencies
-├── tests/                             # Test files
-├── docker/                            # Docker configurations
-│   ├── Dockerfile.rasa               # Rasa server container
-│   └── Dockerfile.actions            # Actions server container
-├── requirements.txt                   # Python dependencies
-├── docker-compose.yml                # Local development setup
-└── devbox.json                       # Devbox development environment
-```
-
-## 🧪 Testing & Validation
-
-### Validate Your Configuration
+Key environment variables (from .env.example):
 ```bash
-# Validate training data
-rasa data validate
+# Rasa settings
+RASA_URL=http://rasa:5005
+RASA_WEBHOOK_URL=http://rasa:5005/webhooks/rest/webhook
 
-# Run tests
-rasa test
+# Server settings
+HOST=0.0.0.0
+PORT=8000
 
-# Check endpoints configuration
-docker-compose config
+# Rasa specific settings
+RASA_MODEL_PATH=/app/models
+RASA_DATA_PATH=/app/data
 ```
 
-### Integration Testing
-```bash
-# Test Docker Compose setup
-./test-deployment.sh
+### Docker Network Configuration
 
-# Test Kubernetes deployment
-kubectl get pods -l app.kubernetes.io/name=chatbot
-kubectl logs -l app.kubernetes.io/component=rasa-server
-```
-
-## 📦 CI/CD & Container Registry
-
-### GitHub Secrets Required
-Set these in your repository settings:
-```
-DOCKER_TOKEN=your_docker_hub_access_token
-```
-
-### Automatic Builds
-The GitHub Actions workflow automatically:
-1. Builds containers on push to main
-2. Pushes to `socrates12345/chat-template-rasa:latest` and `socrates12345/chat-template-actions:latest`
-3. Runs integration tests
-
-### Custom Registry
-To use your own Docker registry, update:
-1. `.github/workflows/docker-build.yml` - Change image names
-2. `oam/sample-applications.yaml` - Update `rasaImage` and `actionsImage`
-
-## 🔒 Production Considerations
-
-### Security
 ```yaml
-# Use secrets for sensitive data
-apiVersion: v1
-kind: Secret
-metadata:
-  name: chatbot-secrets
-data:
-  DATABASE_PASSWORD: base64-encoded-password
+services:
+  chat-service:
+    ports: 
+      - "80:8000"  # External:Internal
+    environment:
+      RASA_URL: http://rasa:5005
+      HOST: 0.0.0.0
+      PORT: 8000
+
+  rasa:
+    ports: 
+      - "5005:5005"  # Only needed for development
+    networks:
+      - rasa_network
+
+  rasa-actions:
+    ports: 
+      - "8000:8000"  # Only needed for development
+    networks:
+      - rasa_network
 ```
 
-### Scaling
-```yaml
-# In your OAM Application
-properties:
-  minScale: 2              # Always-on instances
-  maxScale: 20            # Maximum scale
-  targetConcurrency: 10   # Requests per instance
-```
+### Security Notes
 
-### Monitoring
-```yaml
-# Health check endpoints available:
-# Rasa: GET /api/status
-# Actions: GET /health
-```
+- Only chat-service is exposed externally (port 80)
+- Rasa and Rasa Actions servers are only accessible within the Docker network
+- All external WebSocket connections are handled by chat-service proxy
+- CORS is configured to allow specific origins only
 
-## 🐛 Troubleshooting
+## Environment Variables
+Key environment variables (see .env.example):
+- RASA_URL: Internal Rasa server URL
+- RASA_WEBHOOK_URL: Webhook endpoint for Rasa
+- HOST: Server host binding
+- PORT: Server port binding
 
-### Common Issues
+## Available Endpoints
+- Web interface: http://localhost:8000
+- API documentation: http://localhost:8000/docs  
+- OpenAPI specification: http://localhost:8000/openapi.json
 
-**Actions server not reachable:**
-```bash
-# Check service discovery
-kubectl get svc
-kubectl describe svc chatbot-actions
+When running with Docker:
+- Web interface: http://localhost/chat/
+- API documentation: http://localhost/docs
+- OpenAPI specification: http://localhost/openapi.json
 
-# Check environment variables
-kubectl exec deployment/chatbot-rasa -- env | grep ACTION
-```
-
-**Container startup failures:**
-```bash
-# Check logs
-docker-compose logs rasa
-docker-compose logs actions
-
-# Or in Kubernetes
-kubectl logs -l app.kubernetes.io/component=rasa-server
-kubectl logs -l app.kubernetes.io/component=actions-server
-```
-
-**Port conflicts:**
-```bash
-# Change ports in docker-compose.yml
-ports:
-  - "5006:5005"  # Use port 5006 locally
-```
-
-### Getting Help
-
-1. Check logs first: `docker-compose logs` or `kubectl logs`
-2. Verify endpoints: `curl http://localhost:5005/api/status`
-3. Test actions server: `curl http://localhost:5055/health`
-4. Validate configuration: `rasa data validate`
-
-## 🤝 Contributing
-
-1. Fork the template
-2. Make your changes
-3. Test with Docker Compose: `docker-compose up --build`
-4. Test OAM deployment: `kubectl apply -f oam/sample-applications.yaml`
-5. Submit a pull request
-
-## 📄 License
-
-MIT License - see LICENSE file for details.
+## Environment Variables
+Key environment variables (see .env.example):
+- RASA_URL: Internal Rasa server URL
+- RASA_WEBHOOK_URL: Webhook endpoint for Rasa
+- HOST: Server host binding
+- PORT: Server port binding
