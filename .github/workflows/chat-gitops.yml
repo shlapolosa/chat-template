@@ -128,28 +128,67 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Check service structure
+        run: |
+          echo "🔍 Checking Docker structure for ${{ matrix.service }}..."
+          ls -la "microservices/${{ matrix.service }}"
+          if [ -d "microservices/${{ matrix.service }}/docker" ]; then
+            echo "📁 Docker directory structure:"
+            ls -la "microservices/${{ matrix.service }}/docker/"
+          fi
+
       - name: Build Base image for scanning
         run: |
           echo "🔍 Building Base image for ${{ matrix.service }} security scanning..."
-          docker build -t local-scan/${{ matrix.service }}-base:latest \
-            -f "microservices/${{ matrix.service }}/docker/Dockerfile" \
-            "microservices/${{ matrix.service }}"
+          
+          # Check if base Dockerfile exists
+          if [ -f "microservices/${{ matrix.service }}/docker/Dockerfile" ]; then
+            echo "📦 Building base image from docker/Dockerfile"
+            docker build -t local-scan/${{ matrix.service }}-base:latest \
+              -f "microservices/${{ matrix.service }}/docker/Dockerfile" \
+              "microservices/${{ matrix.service }}"
+          else
+            echo "❌ No base Dockerfile found at microservices/${{ matrix.service }}/docker/Dockerfile"
+            echo "Available files:"
+            find "microservices/${{ matrix.service }}" -name "*Dockerfile*" -type f || true
+            exit 1
+          fi
 
       - name: Build Rasa image for scanning
         run: |
           echo "🔍 Building Rasa container for ${{ matrix.service }} security scanning..."
-          docker build -t local-scan/${{ matrix.service }}-rasa:latest \
-            --build-arg BASE_IMAGE=local-scan/${{ matrix.service }}-base:latest \
-            -f "microservices/${{ matrix.service }}/docker/rasa/Dockerfile" \
-            "microservices/${{ matrix.service }}"
+          
+          if [ -f "microservices/${{ matrix.service }}/docker/rasa/Dockerfile" ]; then
+            echo "📦 Building Rasa image from docker/rasa/Dockerfile"
+            docker build -t local-scan/${{ matrix.service }}-rasa:latest \
+              --build-arg BASE_IMAGE=local-scan/${{ matrix.service }}-base:latest \
+              -f "microservices/${{ matrix.service }}/docker/rasa/Dockerfile" \
+              "microservices/${{ matrix.service }}"
+          else
+            echo "⚠️ No Rasa Dockerfile found, skipping Rasa scan"
+          fi
 
       - name: Build Actions image for scanning
         run: |
           echo "🔍 Building Actions container for ${{ matrix.service }} security scanning..."
-          docker build -t local-scan/${{ matrix.service }}-actions:latest \
-            --build-arg BASE_IMAGE=local-scan/${{ matrix.service }}-base:latest \
-            -f "microservices/${{ matrix.service }}/docker/rasa-actions/Dockerfile" \
-            "microservices/${{ matrix.service }}"
+          
+          if [ -f "microservices/${{ matrix.service }}/docker/rasa-actions/Dockerfile" ]; then
+            echo "📦 Building Actions image from docker/rasa-actions/Dockerfile"
+            docker build -t local-scan/${{ matrix.service }}-actions:latest \
+              --build-arg BASE_IMAGE=local-scan/${{ matrix.service }}-base:latest \
+              -f "microservices/${{ matrix.service }}/docker/rasa-actions/Dockerfile" \
+              "microservices/${{ matrix.service }}"
+          else
+            echo "⚠️ No Actions Dockerfile found, skipping Actions scan"
+          fi
+
+      - name: Run Trivy on Base image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'local-scan/${{ matrix.service }}-base:latest'
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.service }}-base.sarif'
+        continue-on-error: true
 
       - name: Run Trivy on Rasa container
         uses: aquasecurity/trivy-action@master
@@ -158,6 +197,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-results-${{ matrix.service }}-rasa.sarif'
         continue-on-error: true
+        if: success() || failure()  # Run even if base scan failed
 
       - name: Run Trivy on Actions container
         uses: aquasecurity/trivy-action@master
@@ -165,6 +205,15 @@ jobs:
           image-ref: 'local-scan/${{ matrix.service }}-actions:latest'
           format: 'sarif'
           output: 'trivy-results-${{ matrix.service }}-actions.sarif'
+        continue-on-error: true
+        if: success() || failure()  # Run even if previous scans failed
+
+      - name: Upload Base scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results-${{ matrix.service }}-base.sarif'
+          category: 'trivy-${{ matrix.service }}-base'
         continue-on-error: true
 
       - name: Upload Rasa scan results
