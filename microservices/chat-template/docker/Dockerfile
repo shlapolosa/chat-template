@@ -1,4 +1,4 @@
-# Base Image
+# Base Image for Rasa Chat Template
 FROM python:3.10-slim
 
 WORKDIR /app
@@ -16,13 +16,11 @@ RUN apt-get update && apt-get install -y \
     poetry config virtualenvs.create false && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-
 # Upgrade setuptools, virtualenv, and Poetry
 RUN pip install --upgrade setuptools==65.5.1 virtualenv poetry
 
-# Upgrade setuptools, virtualenv, and Poetry
+# Install blis for optimized performance
 RUN pip install blis==0.7.9 --no-cache-dir
-
 
 # Copy dependency files
 COPY pyproject.toml poetry.lock* ./
@@ -30,9 +28,8 @@ COPY pyproject.toml poetry.lock* ./
 # Add Rasa Plus repository to Poetry
 RUN poetry config repositories.rasa-plus https://europe-west3-python.pkg.dev/rasa-releases/rasa-plus-py/simple
 
-# Pre-install shared dependencies (optional)
+# Pre-install shared dependencies
 RUN poetry install --no-root
-
 
 # Use build argument for Rasa Pro License
 ARG RASA_PRO_LICENSE

@@ -1,12 +1,24 @@
 version: '3.8'
 
 services:
+  # Base image (built first)
+  base:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: chat-template-base:latest
+
   # Rasa server
   rasa:
     build:
       context: .
       dockerfile: docker/rasa/Dockerfile
+      args:
+        BASE_IMAGE: chat-template-base:latest
     image: rasa-chatbot-template:latest
+    depends_on:
+      - base
+      - rasa-actions
     container_name: rasa-server
     ports:
       - "5005:5005"
@@ -41,7 +53,11 @@ services:
     build:
       context: .
       dockerfile: docker/rasa-actions/Dockerfile
+      args:
+        BASE_IMAGE: chat-template-base:latest
     image: rasa-actions-template:latest
+    depends_on:
+      - base
     container_name: rasa-actions
     ports:
       - "5055:5055"

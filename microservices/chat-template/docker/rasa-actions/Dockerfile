@@ -1,4 +1,6 @@
-FROM socrates12345/rasa-base:3.7.10
+# Build base image first, then extend it
+ARG BASE_IMAGE=socrates12345/chat-template-base:latest
+FROM ${BASE_IMAGE}
 
 WORKDIR /app
 
