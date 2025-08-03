@@ -8,9 +8,10 @@ on:
       - 'microservices/**/config.yml'
       - 'microservices/**/data/**'
       - 'microservices/**/actions/**'
-      - 'microservices/**/docker/Dockerfile.rasa'
-      - 'microservices/**/docker/Dockerfile.actions'
-      - 'microservices/**/requirements.txt'
+      - 'microservices/**/docker/Dockerfile'
+      - 'microservices/**/docker/rasa/Dockerfile'
+      - 'microservices/**/docker/rasa-actions/Dockerfile'
+      - 'microservices/**/pyproject.toml'
       - 'microservices/**/credentials.yml'
       - 'microservices/**/endpoints.yml'
   pull_request:
@@ -20,8 +21,9 @@ on:
       - 'microservices/**/config.yml'
       - 'microservices/**/data/**'
       - 'microservices/**/actions/**'
-      - 'microservices/**/docker/Dockerfile.rasa'
-      - 'microservices/**/docker/Dockerfile.actions'
+      - 'microservices/**/docker/Dockerfile'
+      - 'microservices/**/docker/rasa/Dockerfile'
+      - 'microservices/**/docker/rasa-actions/Dockerfile'
 
 permissions:
   contents: read
@@ -126,18 +128,27 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Build Base image for scanning
+        run: |
+          echo "🔍 Building Base image for ${{ matrix.service }} security scanning..."
+          docker build -t local-scan/${{ matrix.service }}-base:latest \
+            -f "microservices/${{ matrix.service }}/docker/Dockerfile" \
+            "microservices/${{ matrix.service }}"
+
       - name: Build Rasa image for scanning
         run: |
           echo "🔍 Building Rasa container for ${{ matrix.service }} security scanning..."
           docker build -t local-scan/${{ matrix.service }}-rasa:latest \
-            -f "microservices/${{ matrix.service }}/docker/Dockerfile.rasa" \
+            --build-arg BASE_IMAGE=local-scan/${{ matrix.service }}-base:latest \
+            -f "microservices/${{ matrix.service }}/docker/rasa/Dockerfile" \
             "microservices/${{ matrix.service }}"
 
       - name: Build Actions image for scanning
         run: |
           echo "🔍 Building Actions container for ${{ matrix.service }} security scanning..."
           docker build -t local-scan/${{ matrix.service }}-actions:latest \
-            -f "microservices/${{ matrix.service }}/docker/Dockerfile.actions" \
+            --build-arg BASE_IMAGE=local-scan/${{ matrix.service }}-base:latest \
+            -f "microservices/${{ matrix.service }}/docker/rasa-actions/Dockerfile" \
             "microservices/${{ matrix.service }}"
 
       - name: Run Trivy on Rasa container
@@ -218,7 +229,35 @@ jobs:
               SERVICE_BASE="$service"  # No suffix to remove
             fi
             
-            # Build Rasa container
+            # Build Base image first
+            BASE_IMAGE="${{ env.REGISTRY }}/${{ env.REGISTRY_USERNAME }}/${SERVICE_BASE}-base"
+            BASE_TAG="$BASE_IMAGE:$COMMIT_SHA"
+            BASE_LATEST="$BASE_IMAGE:latest"
+            BASE_VERSION="$BASE_IMAGE:$SEMVER"
+            
+            echo "🏗️ Building Base image: $BASE_TAG"
+            docker build -t "$BASE_TAG" \
+              -f "microservices/$service/docker/Dockerfile" \
+              --build-arg BUILD_VERSION="$SEMVER" \
+              --build-arg BUILD_COMMIT="$COMMIT_SHA" \
+              --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --label "org.opencontainers.image.version=$SEMVER" \
+              --label "org.opencontainers.image.revision=${{ github.sha }}" \
+              --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+              --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --label "org.opencontainers.image.title=${SERVICE_BASE}-base" \
+              --label "org.opencontainers.image.description=Base Image for Rasa Chatbot - $service" \
+              "microservices/$service"
+            
+            # Tag and push Base image
+            docker tag "$BASE_TAG" "$BASE_LATEST"
+            docker tag "$BASE_TAG" "$BASE_VERSION"
+            echo "📤 Pushing Base image tags..."
+            docker push "$BASE_TAG"
+            docker push "$BASE_LATEST"
+            docker push "$BASE_VERSION"
+            
+            # Build Rasa container with base image reference
             RASA_IMAGE="${{ env.REGISTRY }}/${{ env.REGISTRY_USERNAME }}/${SERVICE_BASE}-rasa"
             RASA_TAG="$RASA_IMAGE:$COMMIT_SHA"
             RASA_LATEST="$RASA_IMAGE:latest"
@@ -226,7 +265,8 @@ jobs:
             
             echo "🏗️ Building Rasa container: $RASA_TAG"
             docker build -t "$RASA_TAG" \
-              -f "microservices/$service/docker/Dockerfile.rasa" \
+              --build-arg BASE_IMAGE="$BASE_TAG" \
+              -f "microservices/$service/docker/rasa/Dockerfile" \
               --build-arg BUILD_VERSION="$SEMVER" \
               --build-arg BUILD_COMMIT="$COMMIT_SHA" \
               --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -256,7 +296,7 @@ jobs:
             docker push "$RASA_LATEST"
             docker push "$RASA_VERSION"
             
-            # Build Actions container
+            # Build Actions container with base image reference
             ACTIONS_IMAGE="${{ env.REGISTRY }}/${{ env.REGISTRY_USERNAME }}/${SERVICE_BASE}-actions"
             ACTIONS_TAG="$ACTIONS_IMAGE:$COMMIT_SHA"
             ACTIONS_LATEST="$ACTIONS_IMAGE:latest"
@@ -264,7 +304,8 @@ jobs:
             
             echo "🏗️ Building Actions container: $ACTIONS_TAG"
             docker build -t "$ACTIONS_TAG" \
-              -f "microservices/$service/docker/Dockerfile.actions" \
+              --build-arg BASE_IMAGE="$BASE_TAG" \
+              -f "microservices/$service/docker/rasa-actions/Dockerfile" \
               --build-arg BUILD_VERSION="$SEMVER" \
               --build-arg BUILD_COMMIT="$COMMIT_SHA" \
               --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -295,6 +336,7 @@ jobs:
             docker push "$ACTIONS_VERSION"
             
             echo "✅ Successfully built and pushed chat service containers:"
+            echo "   Base: $BASE_TAG, $BASE_LATEST, $BASE_VERSION"
             echo "   Rasa: $RASA_TAG, $RASA_LATEST, $RASA_VERSION"
             echo "   Actions: $ACTIONS_TAG, $ACTIONS_LATEST, $ACTIONS_VERSION"
             
@@ -410,6 +452,7 @@ jobs:
               SERVICE_BASE="$service"
             fi
             echo "- **$service**:" >> $GITHUB_STEP_SUMMARY
+            echo "  - Base: \`socrates12345/${SERVICE_BASE}-base:$COMMIT_SHA\`" >> $GITHUB_STEP_SUMMARY
             echo "  - Rasa: \`socrates12345/${SERVICE_BASE}-rasa:$COMMIT_SHA\`" >> $GITHUB_STEP_SUMMARY
             echo "  - Actions: \`socrates12345/${SERVICE_BASE}-actions:$COMMIT_SHA\`" >> $GITHUB_STEP_SUMMARY
           done
