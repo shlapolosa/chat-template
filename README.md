@@ -401,3 +401,30 @@ Key environment variables (see .env.example):
 - RASA_WEBHOOK_URL: Webhook endpoint for Rasa
 - HOST: Server host binding
 - PORT: Server port binding
+
+## Multi-Registry Support
+
+This template supports both Docker Hub and Azure Container Registry (ACR).
+
+### Configuration
+
+Set the `DEFAULT_REGISTRY` environment variable in GitHub Actions:
+- `dockerhub` - Push to Docker Hub only (default)
+- `acr` - Push to Azure Container Registry only
+- `both` - Push to both registries
+
+### Required Secrets
+
+For Docker Hub:
+- `DOCKER_PASSWORD` - Docker Hub password or access token
+
+For ACR:
+- `ACR_PASSWORD` - Azure Container Registry password
+
+### Usage
+
+The CI/CD pipeline will automatically push images to the configured registry(ies).
+Images will be available at:
+- Docker Hub: `docker.io/socrates12345/[service-name]`
+- ACR: `healthidpuaeacr.azurecr.io/[service-name]`
+
