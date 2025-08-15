@@ -14,7 +14,16 @@ on:
     branches: [ main ]
 
 env:
-  REGISTRY: docker.io
+  # Docker Hub settings (default)
+  DOCKERHUB_REGISTRY: docker.io  # Legacy - use DOCKERHUB_REGISTRY
+  DOCKERHUB_USERNAME: socrates12345
+  # ACR settings
+  ACR_REGISTRY: healthidpuaeacr.azurecr.io
+  ACR_NAME: healthidpuaeacr
+  # Default registry selection
+  DEFAULT_REGISTRY: dockerhub  # or "acr" or "both"
+  # Legacy variables for backward compatibility
+  REGISTRY: docker.io  # Legacy - use DOCKERHUB_REGISTRY
   DOCKER_USERNAME: socrates12345
   RASA_IMAGE_NAME: socrates12345/chat-template-rasa
   ACTIONS_IMAGE_NAME: socrates12345/chat-template-actions
